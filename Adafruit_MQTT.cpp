@@ -461,7 +461,16 @@ Adafruit_MQTT_Subscribe *Adafruit_MQTT::readSubscription(int16_t timeout) {
   DEBUG_PRINTBUFFER(buffer, len);
 
   // Parse out length of packet.
-  topiclen = buffer[3];
+  uint8_t topicstart;
+  if (buffer[1] & 128) { // if message length is more than 127 bytes 
+    // This only correct when message length is between 0 - 16383 bytes
+    topiclen = buffer[4];
+    topicstart = 5;
+  } else {
+    topiclen = buffer[3];
+    topicstart = 4;
+  }
+
   DEBUG_PRINT(F("Looking for subscription len ")); DEBUG_PRINTLN(topiclen);
 
   // Find subscription associated with this packet.
@@ -473,7 +482,7 @@ Adafruit_MQTT_Subscribe *Adafruit_MQTT::readSubscription(int16_t timeout) {
         continue;
       // Stop if the subscription topic matches the received topic. Be careful
       // to make comparison case insensitive.
-      if (strncasecmp((char*)buffer+4, subscriptions[i]->topic, topiclen) == 0) {
+      if (strncasecmp((char*)buffer+topicstart, subscriptions[i]->topic, topiclen) == 0) {
         DEBUG_PRINT(F("Found sub #")); DEBUG_PRINTLN(i);
         break;
       }
@@ -486,20 +495,20 @@ Adafruit_MQTT_Subscribe *Adafruit_MQTT::readSubscription(int16_t timeout) {
   // Check if it is QoS 1, TODO: we dont support QoS 2
   if ((buffer[0] & 0x6) == 0x2) {
     packet_id_len = 2;
-    packetid = buffer[topiclen+4];
+    packetid = buffer[topiclen+topicstart];
     packetid <<= 8;
-    packetid |= buffer[topiclen+5];
+    packetid |= buffer[topiclen+topicstart+1];
   }
 
   // zero out the old data
   memset(subscriptions[i]->lastread, 0, SUBSCRIPTIONDATALEN);
 
-  datalen = len - topiclen - packet_id_len - 4;
+  datalen = len - topiclen - packet_id_len - topicstart;
   if (datalen > SUBSCRIPTIONDATALEN) {
     datalen = SUBSCRIPTIONDATALEN-1; // cut it off
   }
   // extract out just the data, into the subscription object itself
-  memmove(subscriptions[i]->lastread, buffer+4+topiclen+packet_id_len, datalen);
+  memmove(subscriptions[i]->lastread, buffer+topicstart+topiclen+packet_id_len, datalen);
   subscriptions[i]->datalen = datalen;
   DEBUG_PRINT(F("Data len: ")); DEBUG_PRINTLN(datalen);
   DEBUG_PRINT(F("Data: ")); DEBUG_PRINTLN((char *)subscriptions[i]->lastread);
